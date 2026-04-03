@@ -1,0 +1,185 @@
+/* GLOBAL */
+body {
+  margin: 0;
+  font-family: "Inter", sans-serif;
+  background: radial-gradient(#ff7a00, #3b0000 40%, #000 100%);
+  color: #f5f5f5;
+}
+
+/* MAIN WRAPPER */
+.app {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  min-height: 100vh;
+  padding-top: 60px;
+  text-align: center;
+}
+
+/* HERO */
+.hero {
+  width: 100%;
+  max-width: 850px;
+  margin: 0 auto;   
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* ONLY TITLE ORANGE */
+.hero h1 {
+  font-size: 56px;
+  font-weight: 800;
+  color: #ff7a00;
+  text-shadow: 0 0 12px rgba(255, 122, 0, 0.6);
+  margin-bottom: 10px;
+  text-align: centre;
+  width: 100%;
+}
+
+/* SUBTEXT */
+.hero p {
+  color: #aaa;
+  margin-bottom: 25px;
+}
+
+/* INPUT ROW */
+.input-row {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+}
+
+/* INPUT */
+input {
+  width: 380px;
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid #333;
+  background: #111;
+  color: white;
+}
+
+input:focus {
+  outline: none;
+  border-color: #ff7a00;
+  box-shadow: 0 0 8px rgba(255, 122, 0, 0.3);
+}
+
+/* BUTTON */
+button {
+  padding: 12px 20px;
+  border-radius: 10px;
+  border: none;
+  background: #ff7a00;
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+  transition: 0.2s ease;
+}
+
+button:hover {
+  transform: scale(1.05);
+}
+
+/* LOADING */
+.loading {
+  margin-top: 20px;
+  color: #555;
+}
+
+/* RESULTS CONTAINER */
+.results {
+  margin-top: 40px;
+  width: 100%;
+  max-width: 850px;
+  display: flex;
+  flex-direction: column;
+  gap: 25px;
+  align-items: center;
+}
+
+/* CARDS */
+.card {
+  width: 100%;
+  background: #111;  
+  padding: 25px;
+  border-radius: 16px;
+  border: 1px solid #222;
+  box-shadow: 0 6px 25px rgba(0, 0, 0, 0.6);
+  text-align: left;
+}
+
+/* CARD TITLES */
+.card h3 {
+  margin-bottom: 10px;
+  color: #fff;
+}
+
+/* GEO SCORE */
+.score {
+  font-size: 40px;
+  font-weight: bold;
+  color: #ff7a00;
+}
+
+/* MAIN CONTAINER */
+.score-container {
+  display: flex;
+  flex-direction: row;      
+  align-items: center;
+  justify-content: center;
+  gap: 60px;
+  width: 100%;
+}
+
+/* LEFT: circle */
+.score-circle {
+  width: 120px;
+  flex-direction: column;
+  height: 120px;
+  flex-shrink: 0;
+}
+
+/* RIGHT: bars */
+.score-details {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  text-align: left;
+  min-width: 250px;
+}
+
+/* progress bars */
+progress {
+  width: 100%;
+  height: 8px;
+  margin-bottom: 16px;
+}
+
+/* JSON BLOCK */
+pre {
+  background: #f9f9f9;
+  padding: 12px;
+  border-radius: 10px;
+  overflow-x: auto;
+  color: #333;
+}
+
+/* LIST */
+ul {
+  padding-left: 20px;
+}
+
+
+.card {
+  will-change: transform, opacity;
+}
+
+
+.card:hover {
+  transform: translateY(-2px);
+  transition: 0.2s ease;
+}
