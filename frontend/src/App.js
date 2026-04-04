@@ -24,6 +24,10 @@ export default function App() {
       });
 
       const json = await res.json();
+      if(!res.ok){
+        alert(`Error: ${json.detail || "Something went wrong"}`);
+        return ;
+      }
       setData(json);
     } catch (err) {
       alert("Error running audit");
@@ -113,8 +117,8 @@ export default function App() {
             <div className="score-container">
               <div className="score-circle">
                 <CircularProgressbar
-                  value={data.geo_scores.overall}
-                  text={`${data.geo_scores.overall}`}
+                  value={data.geo_scores?.overall}
+                  text={`${data.geo_scores?.overall}`}
                   styles={buildStyles({
                     textColor: "#fff",
                     pathColor: "#ff7a00",
@@ -125,13 +129,13 @@ export default function App() {
 
               <div className="score-details">
                 <p>Structured Data</p>
-                <progress value={data.geo_scores.structured_data} max="100" />
+                <progress value={data.geo_scores?.structured_data} max="100" />
 
                 <p>Content Clarity</p>
-                <progress value={data.geo_scores.content_clarity} max="100" />
+                <progress value={data.geo_scores?.content_clarity} max="100" />
 
                 <p>AI Citation Potential</p>
-                <progress value={data.geo_scores.ai_citation_potential} max="100" />
+                <progress value={data.geo_scores?.ai_citation_potential} max="100" />
               </div>
             </div>
           </motion.div>
@@ -147,7 +151,7 @@ export default function App() {
           <motion.div className="card" variants={cardVariant}>
             <h3>Insights</h3>
             <ul>
-              {data.geo_insights.map((i, idx) => (
+              {data.geo_insights?.map((i, idx) => (
                 <li key={idx}>{i}</li>
               ))}
             </ul>
