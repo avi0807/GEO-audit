@@ -186,7 +186,7 @@ async def get_llm_recommendation(url: str, page_data: dict) -> dict:
             contents=full_prompt
             )
 
-        raw = response.text.strip()
+        raw = response.text.strip() # type: ignore
 
         print("\n===== RAW LLM OUTPUT =====\n")
         print(raw)
