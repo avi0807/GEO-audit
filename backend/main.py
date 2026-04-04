@@ -23,7 +23,7 @@ app.add_middleware(
     allow_headers=["*"]
 )
 
-client = genai.Client(api_key="AIzaSyAvtWL8dNU1B8chIysDxzSq8fxRsCAYoXo")
+client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 
 
 class AuditRequest(BaseModel):
