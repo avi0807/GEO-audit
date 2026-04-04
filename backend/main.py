@@ -2,7 +2,7 @@ import os
 import re
 import json 
 import httpx
-from google import genai
+from google import genai #type:ignore
 from urllib.parse import urlparse,urljoin
 from typing import Optional
 
@@ -134,7 +134,7 @@ async def scrape_page(url:str)->dict:
     }
 
 #SCHEMA RECOMMENDATION
-SYSTEM_PROMPT = SYSTEM_PROMPT = """You are a GEO (Generative Engine Optimization) expert.
+SYSTEM_PROMPT = """You are a GEO (Generative Engine Optimization) expert.
 Your job is to analyze webpage content and recommend the most impactful JSON-LD
 structured data schema to maximize the page's chances of being cited by AI search
 engines like ChatGPT, Perplexity, and Google AI Overviews.
@@ -192,7 +192,7 @@ async def get_llm_recommendation(url: str, page_data: dict) -> dict:
         print(raw)
         print("\n==========================\n")
 
-        # remove markdown
+        # removing markdown
         raw = re.sub(r"^```(?:json)?\s*", "", raw)
         raw = re.sub(r"\s*```$", "", raw)
 
@@ -200,52 +200,361 @@ async def get_llm_recommendation(url: str, page_data: dict) -> dict:
             return json.loads(raw)
         except Exception as e:
             print("❌ JSON PARSE ERROR:", e)
-            return _fallback_recommendations(page_data)
+            return _fallback_recommendations(page_data,url)
 
     except Exception as e:
         print("❌ LLM ERROR:", e)
-        return _fallback_recommendations(page_data)
+        return _fallback_recommendations(page_data,url)
 
-def _fallback_recommendations(page_data:dict)->dict:
+def _score_structured_data(page_data: dict, schema_type: str) -> tuple[int, list[str]]:
+    """
+    Score 0-100 based on structured data signals. Returns (score, issues).
+    Checks: existing JSON-LD, meta tags, Open Graph, title quality.
+    """
+    score = 0
+    issues = []
+ 
+    has_title = bool(page_data.get("title"))
+    has_desc = bool(page_data.get("meta_description"))
+    has_existing_jsonld = bool(page_data.get("existing_jsonld"))
+    has_headings = bool(page_data.get("headings"))
+    has_images = bool(page_data.get("images"))
+ 
+
+    if has_existing_jsonld:
+        score += 45
+    else:
+        issues.append("No JSON-LD structured data found on the page — this is the top priority fix for AI citation readiness.")
+ 
+
+    if has_title:
+        title = page_data["title"]
+        if 10 <= len(title) <= 70:
+            score += 20
+        else:
+            score += 10
+            issues.append(f"Page title is {'too short' if len(title) < 10 else 'too long'} ({len(title)} chars). Aim for 10–70 characters for optimal AI comprehension.")
+    else:
+        issues.append("Missing <title> tag — AI engines use the page title as the primary citation label.")
+ 
+
+    if has_desc:
+        desc = page_data["meta_description"]
+        if 50 <= len(desc) <= 160:
+            score += 20
+        else:
+            score += 10
+            issues.append(f"Meta description is {'too short' if len(desc) < 50 else 'too long'} ({len(desc)} chars). Aim for 50–160 characters.")
+    else:
+        issues.append("Missing meta description — AI search engines use this to understand and summarize the page.")
+ 
+
+    if has_headings:
+        score += 10
+    else:
+        issues.append("No heading tags (H1–H3) detected — headings help AI engines understand page structure and topic hierarchy.")
+ 
+
+    if has_images:
+        score += 5
+ 
+    return min(score, 100), issues
+def _classify_schema_type(title: str, desc: str, headings: list, body: str, url: str) -> str:
+    """
+    Multi-signal schema classifier. Scores each candidate schema type across
+    all available text signals and returns the highest-scoring match.
+    Signals: URL path, title, meta description, headings, body snippet.
+    """
+ 
+    url_path = urlparse(url).path.lower()
+    all_text = " ".join([
+        title * 3,           
+        desc * 2,            
+        " ".join(headings),  
+        body[:800],          
+        url_path,            
+    ]).lower()
+ 
+
+    candidates: dict[str, list[tuple[str, int]]] = {
+        "Product": [
+            ("product", 3), ("buy", 3), ("price", 3), ("add to cart", 4),
+            ("shop", 2), ("store", 2), ("purchase", 3), ("order", 2),
+            ("sku", 4), ("in stock", 4), ("shipping", 2), ("review", 1),
+            ("/product", 3), ("/shop", 2), ("/item", 2),
+        ],
+        "Article": [
+            ("blog", 3), ("article", 3), ("post", 2), ("news", 3),
+            ("published", 2), ("author", 2), ("read more", 2), ("story", 2),
+            ("report", 2), ("editorial", 3), ("interview", 2), ("opinion", 2),
+            ("/blog", 3), ("/news", 3), ("/article", 3), ("/post", 2),
+        ],
+        "FAQPage": [
+            ("faq", 5), ("frequently asked", 5), ("questions", 3),
+            ("how to", 2), ("what is", 2), ("why does", 2), ("can i", 2),
+            ("help center", 3), ("support", 2), ("answers", 3),
+            ("/faq", 5), ("/help", 3), ("/support", 2),
+        ],
+        "HowTo": [
+            ("how to", 4), ("step by step", 4), ("tutorial", 4),
+            ("guide", 3), ("instructions", 3), ("steps", 3),
+            ("walkthrough", 3), ("learn how", 3), ("beginner", 2),
+            ("/tutorial", 4), ("/guide", 3), ("/how-to", 4),
+        ],
+        "Organization": [
+            ("about us", 4), ("our team", 4), ("who we are", 4),
+            ("company", 3), ("mission", 3), ("founded", 3), ("values", 2),
+            ("leadership", 3), ("careers", 2), ("contact us", 2),
+            ("/about", 4), ("/company", 3), ("/team", 3),
+        ],
+        "LocalBusiness": [
+            ("restaurant", 4), ("clinic", 4), ("salon", 4), ("gym", 4),
+            ("store", 3), ("office", 2), ("hours", 3), ("open", 2),
+            ("location", 3), ("directions", 3), ("reserve", 3), ("book", 2),
+            ("phone", 2), ("address", 3), ("near me", 4),
+        ],
+        "Event": [
+            ("event", 4), ("conference", 4), ("webinar", 4), ("meetup", 4),
+            ("workshop", 4), ("register", 3), ("tickets", 4), ("rsvp", 5),
+            ("schedule", 2), ("agenda", 3), ("speaker", 3), ("session", 2),
+            ("/event", 4), ("/conference", 4),
+        ],
+        "SoftwareApplication": [
+            ("app", 3), ("software", 3), ("download", 3), ("platform", 2),
+            ("saas", 4), ("api", 3), ("integration", 2), ("dashboard", 3),
+            ("free trial", 4), ("sign up", 2), ("pricing", 3), ("feature", 2),
+            ("/app", 3), ("/product", 2), ("/platform", 3),
+        ],
+        "WebPage": [], 
+    }
+ 
+    scores: dict[str, int] = {schema: 0 for schema in candidates}
+    for schema, keywords in candidates.items():
+        for keyword, weight in keywords:
+            if keyword in all_text:
+                scores[schema] += weight
+
+    non_default = {k: v for k, v in scores.items() if k != "WebPage"}
+    best_schema = max(non_default, key=lambda k: non_default[k])
+    if non_default[best_schema] == 0:
+        return "WebPage"
+    return best_schema
+
+def _score_content_clarity(page_data: dict) -> tuple[int, list[str]]:
+    """
+    Score 0-100 based on how clearly structured and readable the content is.
+    Checks: heading hierarchy, description quality, body length, image presence.
+    """
+    score = 0
+    issues = []
+ 
+    title = page_data.get("title") or ""
+    desc = page_data.get("meta_description") or ""
+    headings = page_data.get("headings", [])
+    body = page_data.get("body_snippet", "")
+    images = page_data.get("images", [])
+
+    if title and len(title) >= 10:
+        score += 20
+    elif title:
+        score += 10
+        issues.append("Page title is very short — a descriptive title improves AI understanding of the page topic.")
+ 
+
+    if desc and len(desc) >= 50:
+        score += 25
+    elif desc:
+        score += 12
+        issues.append("Meta description is too brief to give AI engines enough context. Aim for 2–3 full sentences.")
+    else:
+        issues.append("Add a meta description to clearly communicate the page's purpose to AI search engines.")
+
+    if len(headings) >= 3:
+        score += 25
+    elif len(headings) == 2:
+        score += 18
+    elif len(headings) == 1:
+        score += 10
+        issues.append("Only one heading found. A clear H1 → H2 → H3 hierarchy helps AI engines map the content structure.")
+    else:
+        issues.append("No headings detected. Use H1 for the main topic and H2/H3 for subtopics to aid AI parsing.")
+ 
+
+    word_count = len(body.split())
+    if word_count >= 200:
+        score += 20
+    elif word_count >= 100:
+        score += 12
+        issues.append("Page body appears short. Richer content gives AI engines more signals to cite from.")
+    else:
+        score += 4
+        issues.append("Very little readable body text detected. Consider expanding page content for better AI comprehension.")
+ 
+
+    if images:
+        score += 10
+ 
+    return min(score, 100), issues
+def _build_jsonld(schema_type: str, title: str, desc: str, url: str, images: list) -> dict:
+    """Build a reasonably populated JSON-LD block from available scraped signals."""
+    base:dict = {
+        "@context": "https://schema.org",
+        "@type": schema_type,
+        "name": title,
+        "url": url,
+    }
+    if desc:
+        base["description"] = desc
+    if images:
+        base["image"] = images[0]
+ 
+
+    if schema_type == "Article":
+        base.update({
+            "headline": title,
+            "datePublished": "FILL_IN",
+            "author": {"@type": "Person", "name": "FILL_IN"},
+            "publisher": {"@type": "Organization", "name": "FILL_IN", "logo": {"@type": "ImageObject", "url": "FILL_IN"}},
+        })
+    elif schema_type == "Product":
+        base.update({
+            "offers": {"@type": "Offer", "priceCurrency": "USD", "price": "FILL_IN", "availability": "https://schema.org/InStock"},
+        })
+    elif schema_type == "Organization":
+        base.update({
+            "logo": images[0] if images else "FILL_IN",
+            "contactPoint": {"@type": "ContactPoint", "contactType": "customer service"},
+        })
+    elif schema_type == "HowTo":
+        base.update({
+            "totalTime": "FILL_IN",
+            "step": [{"@type": "HowToStep", "name": "FILL_IN", "text": "FILL_IN"}],
+        })
+    elif schema_type == "FAQPage":
+        base.update({
+            "mainEntity": [{"@type": "Question", "name": "FILL_IN", "acceptedAnswer": {"@type": "Answer", "text": "FILL_IN"}}],
+        })
+    elif schema_type == "SoftwareApplication":
+        base.update({
+            "applicationCategory": "WebApplication",
+            "operatingSystem": "Web",
+            "offers": {"@type": "Offer", "price": "FILL_IN"},
+        })
+    elif schema_type == "Event":
+        base.update({
+            "startDate": "FILL_IN",
+            "endDate": "FILL_IN",
+            "location": {"@type": "Place", "name": "FILL_IN"},
+            "organizer": {"@type": "Organization", "name": "FILL_IN"},
+        })
+    elif schema_type == "LocalBusiness":
+        base.update({
+            "address": {"@type": "PostalAddress", "streetAddress": "FILL_IN", "addressLocality": "FILL_IN"},
+            "telephone": "FILL_IN",
+            "openingHours": "FILL_IN",
+        })
+    return base
+def _score_ai_citation_potential(
+    page_data: dict,
+    schema_type: str,
+    structured_data_score: int,
+    content_clarity_score: int,
+) -> tuple[int, list[str]]:
+    """
+    Score 0-100 for how likely this page is to be cited by AI search engines.
+    Derives from structured data + content clarity + schema type specificity.
+    """
+    score = 0
+    issues = []
+ 
+    has_existing_jsonld = bool(page_data.get("existing_jsonld"))
+    has_desc = bool(page_data.get("meta_description"))
+    has_title = bool(page_data.get("title"))
+
+    if has_existing_jsonld:
+        score += 30
+    else:
+        issues.append("Implementing the recommended JSON-LD schema is the highest-impact change for AI citation readiness.")
+ 
+
+    specific_types = {"Article", "Product", "FAQPage", "HowTo", "Event", "LocalBusiness", "SoftwareApplication"}
+    if schema_type in specific_types:
+        score += 15
+    else:
+        issues.append(f"The detected schema type '{schema_type}' is generic. A more specific type (e.g., Article, Product, FAQPage) improves citability.")
+ 
+
+    score += int(content_clarity_score * 0.30)
+ 
+
+    if has_desc:
+        score += 15
+    else:
+        issues.append("A meta description dramatically improves the chance of AI engines selecting this page as a citation source.")
+ 
+
+    if has_title:
+        score += 10
+ 
+    return min(score, 100), issues
+def _fallback_recommendations(page_data:dict,url:str = "")->dict:
     """
     Rule-based fallback when LLM is unavailable.
     """
     title = page_data.get("title") or "Unnamed Page"
     desc = page_data.get("meta_description") or ""
-    schema_type = "WebPage"
+    headings=page_data.get("headings",[])
+    body=page_data.get("body_snippet","")
+    images=page_data.get("images",[])
+
+    schema_type = _classify_schema_type(title,desc,headings,body,url)
+
+    structured_data_score, sd_issues = _score_structured_data(page_data, schema_type)
+    content_clarity_score, cc_issues = _score_content_clarity(page_data)
+    citation_score, cp_issues = _score_ai_citation_potential(
+        page_data, schema_type, structured_data_score, content_clarity_score
+    )
  
-    text_lower = (title + " " + desc).lower()
-    if any(w in text_lower for w in ["product", "buy", "price", "shop", "store"]):
-        schema_type = "Product"
-    elif any(w in text_lower for w in ["article", "blog", "news", "post", "story"]):
-        schema_type = "Article"
-    elif any(w in text_lower for w in ["faq", "question", "answer", "how to"]):
-        schema_type = "FAQPage"
-    elif any(w in text_lower for w in ["about", "company", "team", "who we are"]):
-        schema_type = "Organization"
+
+    overall = int(
+        structured_data_score * 0.40
+        + citation_score * 0.35
+        + content_clarity_score * 0.25
+    )
+ 
+    all_issues = sd_issues + cp_issues + cc_issues
+    seen = set()
+    insights = []
+    for issue in all_issues:
+        key = issue[:40] 
+        if key not in seen:
+            seen.add(key)
+            insights.append(issue)
+    insights = insights[:5] 
+ 
+
+    json_ld = _build_jsonld(schema_type, title, desc, url, images)
  
     return {
         "schema_type": schema_type,
-        "json_ld": {
-            "@context": "https://schema.org",
-            "@type": schema_type,
-            "name": title,
-            "description": desc,
-        },
+        "json_ld": json_ld,
         "reasoning": (
-            "Fallback rule-based recommendation. LLM analysis was unavailable. "
-            f"Schema type '{schema_type}' was inferred from page title and meta description keywords."
+            f"Heuristic analysis (LLM unavailable). Schema type '{schema_type}' was selected "
+            f"by scoring {len(_classify_schema_type.__code__.co_consts)} candidate types across "
+            f"URL path, title, meta description, headings, and body text signals. "
+            f"GEO scores reflect actual page signals: title={'present' if page_data.get('title') else 'missing'}, "
+            f"meta description={'present' if desc else 'missing'}, "
+            f"existing JSON-LD={'yes' if page_data.get('existing_jsonld') else 'no'}, "
+            f"headings={len(headings)} found."
         ),
         "geo_scores": {
-            "overall": 40,
-            "structured_data": 20,
-            "content_clarity": 50,
-            "ai_citation_potential": 30,
+            "overall": overall,
+            "structured_data": structured_data_score,
+            "content_clarity": content_clarity_score,
+            "ai_citation_potential": citation_score,
         },
-        "geo_insights": [
-            "No LLM analysis available — scores are estimated.",
-            "Add a meta description for better AI content comprehension.",
-            "Implement JSON-LD structured data to improve citation potential.",
+        "geo_insights": insights if insights else [
+            "Page has strong GEO foundations. Consider adding FAQ or HowTo schema for additional AI citation opportunities."
         ],
     }
 
@@ -268,13 +577,13 @@ async def audit(request:AuditRequest):
     """
     url_str = str(request.url)
  
-    # 1. Scrape
+
     page_data = await scrape_page(url_str)
  
-    # 2. LLM recommendation
+
     llm_result = await get_llm_recommendation(url_str, page_data)
  
-    # 3. Assemble response
+ 
     scores = llm_result.get("geo_scores", {})
     return AuditResponse(
         url=url_str,
